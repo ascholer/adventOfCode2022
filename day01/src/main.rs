@@ -6,9 +6,11 @@ fn main() -> std::io::Result<()> {
     let elves = elves.map(|e| e.map(|s| str::parse::<i32>(s).unwrap()));
     let mut elves: Vec<i32> = elves.map(|e| e.sum::<i32>()).collect();
     elves.sort_by(|a, b| b.cmp(a));
+    
+    println!("Part 1: {:?}", elves[0]);
+    
     let total = elves[0..3].iter().sum::<i32>();
-
-    println!("{:?}", total);
+    println!("Part 2: {:?}", total);
 
     Ok(())
 }
