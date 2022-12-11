@@ -8,3 +8,4 @@ edition = "2021"
 [dependencies]
 regex = "1.7"
 num-bigint = "0.4.3"
+nom = "7.1.1"

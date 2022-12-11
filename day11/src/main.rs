@@ -1,7 +1,35 @@
-use regex::Regex;
-use std::{
-    fs,
+use nom::{
+    bytes::complete::{is_not, tag, take_till},
+    character::complete::{digit1, space1},
+    combinator::opt,
+    multi::many1,
+    sequence::{delimited, preceded, terminated},
+    IResult,
 };
+use std::fs;
+
+fn num_parse(input: &str) -> IResult<&str, u64> {
+    let (i, num_str) = preceded(take_till(|c| char::is_ascii_digit(&c)), digit1)(input)?;
+    Ok((i, num_str.parse::<u64>().unwrap()))
+}
+
+fn op_parse(input: &str) -> IResult<&str, &str> {
+    let (i, op) = preceded(is_not("+*"), is_not(" "))(input)?;
+    Ok((i, op))
+}
+
+fn num_list_parse(input: &str) -> IResult<&str, Vec<u64>> {
+    let (i, res) = many1(delimited(
+        take_till(|c| char::is_ascii_digit(&c)),
+        digit1,
+        opt(tag(",")),
+    ))(input)?;
+    let nums = res
+        .iter()
+        .map(|r| r.parse::<u64>().unwrap())
+        .collect::<Vec<_>>();
+    Ok((i, nums))
+}
 
 struct Monkey {
     items: Vec<u64>,
@@ -13,16 +41,31 @@ struct Monkey {
 }
 
 impl Monkey {
+    fn inspect_results(&mut self, worry_cap: u64) -> Vec<(u64, usize)> {
+        let results = self
+            .items
+            .drain(..)
+            .map(|mut item| {
+                self.inspects += 1;
+                item = (self.op)(item) % worry_cap;
+                let target_index = if item % self.divisor == 0 {
+                    self.true_target
+                } else {
+                    self.false_target
+                };
+                (item, target_index)
+            })
+            .collect::<Vec<_>>();
+        results
+    }
+
     fn from_string(s: &str) -> Option<Monkey> {
-        let re_items: Regex = Regex::new(r#"(\d+)"#).ok()?;
-        let re_op: Regex = Regex::new(r#" ([\*\+]) (\w+)"#).ok()?;
-        let re_num: Regex = Regex::new(r#"(\d+)"#).ok()?;
         let mut lines = s.lines();
         lines.next(); //discard first
-        let items = re_items.find_iter(lines.next()?);
-        let items: Vec<u64> = items.map(|i| i.as_str().parse::<u64>().unwrap()).collect();
-        let op_cap = re_op.captures(lines.next()?)?;
-        let (op_sym, operand) = (op_cap.get(1)?.as_str(), op_cap.get(2)?.as_str());
+
+        let items = num_list_parse(lines.next()?).unwrap().1;
+
+        let (operand, op_sym) = terminated(op_parse, space1)(lines.next()?).unwrap();
         let op_amt = operand.parse::<u64>().unwrap_or(0);
         let op_err = operand.parse::<u64>();
         let op: Box<dyn Fn(u64) -> u64> = if op_sym == "+" {
@@ -30,24 +73,11 @@ impl Monkey {
         } else {
             Box::new(move |i| i * if op_err.is_err() { i } else { op_amt })
         };
-        let divisor = re_num
-            .captures(lines.next().unwrap())?
-            .get(1)?
-            .as_str()
-            .parse::<u64>()
-            .unwrap();
-        let true_target = re_num
-            .captures(lines.next().unwrap())?
-            .get(1)?
-            .as_str()
-            .parse::<usize>()
-            .unwrap();
-        let false_target = re_num
-            .captures(lines.next().unwrap())?
-            .get(1)?
-            .as_str()
-            .parse::<usize>()
-            .unwrap();
+
+        let divisor = num_parse(lines.next()?).unwrap().1;
+        let true_target = num_parse(lines.next()?).unwrap().1 as usize;
+        let false_target = num_parse(lines.next()?).unwrap().1 as usize;
+
         Some(Monkey {
             items,
             op,
@@ -76,34 +106,13 @@ fn main() {
 
     for _r in 0..10000 {
         for mi in 0..monkeys.len() {
-            let (before, rest) = monkeys[0..].split_at_mut(mi);
-            let (m_it, after) = rest[0..].split_at_mut(1);
-            let m = &mut m_it[0];
-            for mut item in m.items.drain(0..) {
-                m.inspects += 1;
-                item = (m.op)(item) % worry_cap;
-                let target_index = if item % m.divisor == 0 {
-                    m.true_target
-                } else {
-                    m.false_target
-                };
-
-                let target = if target_index < mi {
-                    &mut before[target_index]
-                } else {
-                    &mut after[target_index - mi - 1]
-                };
-
-                target.items.push(item);
+            for (item, target_index) in monkeys[mi].inspect_results(worry_cap) {
+                monkeys[target_index].items.push(item)
             }
         }
     }
 
-    let mut monkey_activity = monkeys
-        .iter()
-        .map(|m| m.inspects)
-        //.inspect(|c| println!("{}", c))
-        .collect::<Vec<u64>>();
+    let mut monkey_activity = monkeys.iter().map(|m| m.inspects).collect::<Vec<u64>>();
     monkey_activity.sort_by(|a, b| b.cmp(a));
 
     println!("Part 2: {}", monkey_activity[0] * monkey_activity[1])
